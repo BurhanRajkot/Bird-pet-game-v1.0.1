@@ -1,6 +1,7 @@
 using UnityEngine;
 
 [RequireComponent(typeof(SpriteRenderer))]
+[RequireComponent(typeof(Animator))]
 public class BirdController : MonoBehaviour
 {
     public enum BirdState
@@ -24,10 +25,14 @@ public class BirdController : MonoBehaviour
     [Header("Flight Arc")]
     public float arcHeight = 1.2f;
 
+    [Header("Sprite Flipping")]
+    public bool flipWhenMovingLeft = true;
+
     [Header("Debug")]
     public BirdState currentState;
 
     SpriteRenderer sr;
+    Animator animator;
 
     Vector3 flightOrigin;
     Vector3 flightTarget;
@@ -38,9 +43,12 @@ public class BirdController : MonoBehaviour
 
     Vector3 lastPerch;
 
+    bool wasFlying = false;
+
     void Awake()
     {
         sr = GetComponent<SpriteRenderer>();
+        animator = GetComponent<Animator>();
     }
 
     void Start()
@@ -100,7 +108,6 @@ public class BirdController : MonoBehaviour
                 else
                 {
                     Vector3 newPerch = windowTracker.CurrentPerchWorld;
-
                     if (Vector3.Distance(lastPerch, newPerch) > perchFollowThreshold)
                     {
                         lastPerch = newPerch;
@@ -116,21 +123,29 @@ public class BirdController : MonoBehaviour
         currentState = newState;
         bobSet = false;
 
-        switch (newState)
+        bool shouldFly = (newState == BirdState.FlyingToWindow || newState == BirdState.FlyingToNest);
+        SetFlying(shouldFly);
+    }
+
+    void SetFlying(bool isFlying)
+    {
+        if (animator == null) return;
+
+        animator.SetBool("IsFlying", isFlying);
+
+        // Force immediate state play — bypasses exit time and blend duration
+        if (isFlying && !wasFlying)
         {
-            case BirdState.Nesting:
-                sr.color = Color.yellow;
-                break;
-
-            case BirdState.FlyingToWindow:
-            case BirdState.FlyingToNest:
-                sr.color = Color.cyan;
-                break;
-
-            case BirdState.Perching:
-                sr.color = Color.green;
-                break;
+            animator.Play("Fly", 0, 0f);
         }
+        else if (!isFlying && wasFlying)
+        {
+            // Match the exact animation clip name — check your Animator states!
+            // Default Idle state is named "Ideal" in your setup (from the screenshot)
+            animator.Play("Ideal", 0, 0f);
+        }
+
+        wasFlying = isFlying;
     }
 
     void BeginFlight(Vector3 target, BirdState flightState)
@@ -154,9 +169,18 @@ public class BirdController : MonoBehaviour
 
         float arc = Mathf.Sin(t * Mathf.PI) * arcHeight;
 
-        transform.position =
-            Vector3.Lerp(flightOrigin, flightTarget, t)
-            + new Vector3(0f, arc, 0f);
+        Vector3 newPos = Vector3.Lerp(flightOrigin, flightTarget, t)
+                         + new Vector3(0f, arc, 0f);
+
+        // Flip sprite based on horizontal movement direction
+        if (flipWhenMovingLeft)
+        {
+            float dx = newPos.x - transform.position.x;
+            if (Mathf.Abs(dx) > 0.001f)
+                sr.flipX = dx < 0f;
+        }
+
+        transform.position = newPos;
 
         if (t >= 1f)
             EnterState(onArrive);
